@@ -1,0 +1,33 @@
+name: Build Android APK
+on:
+  push:
+    tags: ['installers-*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 20}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: 17}
+      - run: npm install
+      - run: npx cap add android
+      - name: Icons
+        run: |
+          sudo apt-get install -y imagemagick >/dev/null
+          for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do n=${d%%:*}; s=${d##*:}; p=android/app/src/main/res/mipmap-$n
+            convert icon.png -resize ${s}x${s} $p/ic_launcher.png; cp $p/ic_launcher.png $p/ic_launcher_round.png
+            convert icon.png -resize $((s*108/48))x$((s*108/48)) -gravity center -background '#0b6e99' -extent $((s*108/48))x$((s*108/48)) $p/ic_launcher_foreground.png; done
+          rm -rf android/app/src/main/res/mipmap-anydpi-v26
+      - name: Build
+        run: cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon -q
+      - run: mkdir out && cp android/app/build/outputs/apk/debug/app-debug.apk out/StockSaathi.apk
+      - name: Release
+        env: {GH_TOKEN: '${{ secrets.GITHUB_TOKEN }}'}
+        run: |
+          gh release delete installers-latest -R ${{ github.repository }} --yes --cleanup-tag || true
+          gh release create installers-latest out/StockSaathi.apk -R ${{ github.repository }} --title "Stock Saathi Android" --notes "Android APK (debug-signed, free). Allow 'Install unknown apps' when asked. Research only, not investment advice."
